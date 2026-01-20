@@ -88,6 +88,9 @@ class DiTFlowConfig(PreTrainedConfig):
         clip_sample_range: The magnitude of the clipping range as described above.
         num_inference_steps: Number of reverse diffusion steps to use at inference time (steps are evenly
             spaced).
+        inference_noise_scale: Scale factor for the initial noise used at inference time (>= 0).
+        inference_t_end: End time for the ODE integration at inference time, in (0, 1]. Values below 1.0
+            stop denoising early to keep residual noise in the sampled action sequence.
         do_mask_loss_for_padding: Whether to mask the loss when there are copy-padded actions. See
             `LeRobotDataset` and `load_previous_and_future_frames` for mor information. Note, this defaults
             to False as the original Diffusion Policy implementation does the same.
@@ -138,6 +141,8 @@ class DiTFlowConfig(PreTrainedConfig):
 
     # Inference
     num_inference_steps: int | None = 100
+    inference_noise_scale: float = 1.0
+    inference_t_end: float = 1.0
 
     # Loss computation
     do_mask_loss_for_padding: bool = False
@@ -162,6 +167,14 @@ class DiTFlowConfig(PreTrainedConfig):
         if self.training_noise_sampling not in ("uniform", "beta"):
             raise ValueError(
                 f"`training_noise_sampling` must be either 'uniform' or 'beta'. Got {self.training_noise_sampling}."
+            )
+        if self.inference_noise_scale < 0:
+            raise ValueError(
+                f"`inference_noise_scale` must be non-negative. Got {self.inference_noise_scale}."
+            )
+        if not 0.0 < self.inference_t_end <= 1.0:
+            raise ValueError(
+                f"`inference_t_end` must be in (0, 1]. Got {self.inference_t_end}."
             )
 
     def get_optimizer_preset(self) -> AdamConfig:

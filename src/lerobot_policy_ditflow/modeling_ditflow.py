@@ -305,18 +305,26 @@ class _DiTNoiseNet(nn.Module):
         condition: torch.Tensor,
         timesteps: int = 100,
         generator: torch.Generator | None = None,
+        noise_scale: float = 1.0,
+        t_end: float = 1.0,
     ) -> torch.Tensor:
         # Use Euler integration to solve the ODE.
         batch_size, device = condition.shape[0], condition.device
         x_0 = self.sample_noise(batch_size, device, generator)
-        dt = 1.0 / timesteps
+        if noise_scale != 1.0:
+            x_0 = x_0 * noise_scale
+        if timesteps <= 0:
+            raise ValueError(f"timesteps must be positive. Got {timesteps}.")
+        if t_end <= 0.0:
+            raise ValueError(f"t_end must be > 0. Got {t_end}.")
+        dt = t_end / timesteps
         t_all = (
             torch.arange(timesteps, device=device)
             .float()
             .unsqueeze(0)
             .expand(batch_size, timesteps)
-            / timesteps
         )
+        t_all = t_all / timesteps * t_end
 
         for k in range(timesteps):
             t = t_all[:, k]
@@ -346,6 +354,7 @@ class DiTFlowPolicy(PreTrainedPolicy):
         self,
         config: DiTFlowConfig,
         dataset_stats: dict[str, dict[str, torch.Tensor]] | None = None,
+        dataset_meta=None,
     ):
         """
         Args:
@@ -353,10 +362,12 @@ class DiTFlowPolicy(PreTrainedPolicy):
                 the configuration class is used.
             dataset_stats: Dataset statistics to be used for normalization. If not passed here, it is expected
                 that they will be passed with a call to `load_state_dict` before the policy is used.
+            dataset_meta: Optional dataset metadata, currently unused but accepted for API compatibility.
         """
         super().__init__(config)
         config.validate_features()
         self.config = config
+        self.dataset_meta = dataset_meta
 
         # queues are populated during rollout of the policy, they contain the n latest observations and actions
         self._queues = None
@@ -534,7 +545,11 @@ class DiTFlowModel(nn.Module):
 
         # Sample prior.
         sample = self.velocity_net.sample(
-            global_cond, timesteps=self.num_inference_steps, generator=generator
+            global_cond,
+            timesteps=self.num_inference_steps,
+            generator=generator,
+            noise_scale=self.config.inference_noise_scale,
+            t_end=self.config.inference_t_end,
         )
         return sample
 
